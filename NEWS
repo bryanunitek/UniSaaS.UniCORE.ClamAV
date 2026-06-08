@@ -1,0 +1,7 @@
+0.93.3
+------
+
+This release fixes a problem in handling of .cld files introduced in 0.93.2.
+
+--
+The ClamAV team (http://www.clamav.net/team)
