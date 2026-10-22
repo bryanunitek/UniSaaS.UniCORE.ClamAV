@@ -10,7 +10,7 @@ properties(
         parameters(
             [
                 string(name: 'VERSION',
-                       defaultValue: '1.5.3',
+                       defaultValue: '1.5.4',
                        description: 'ClamAV version string'),
                 string(name: 'FRAMEWORK_BRANCH',
                        defaultValue: '1.5',
@@ -49,7 +49,7 @@ properties(
                        defaultValue: '1.5',
                        description: 'private-fuzz-corpus branch'),
                 string(name: 'SHARED_LIB_BRANCH',
-                       defaultValue: 'master',
+                       defaultValue: 'main',
                        description: 'tests-jenkins-shared-libraries branch')
             ]
         )

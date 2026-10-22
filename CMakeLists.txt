@@ -19,7 +19,7 @@ string(TIMESTAMP TODAY "%Y%m%d")
 set(VERSION_SUFFIX "")
 
 project( ClamAV
-         VERSION "1.5.3"
+         VERSION "1.5.4"
          DESCRIPTION "ClamAV open source email, web, and end-point anti-virus toolkit." )
 
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH})
@@ -815,6 +815,7 @@ if(WIN32)
     set(HAVE_MKSTEMP 1)
     set(HAVE_POLL 1)
 else()
+    check_symbol_exists(funlinkat        "unistd.h"      HAVE_FUNLINKAT)
     check_symbol_exists(fseeko          "stdio.h"       HAVE_FSEEKO)
     check_symbol_exists(getaddrinfo     "netdb.h"       HAVE_GETADDRINFO)
     check_symbol_exists(getpagesize     "unistd.h"      HAVE_GETPAGESIZE)
