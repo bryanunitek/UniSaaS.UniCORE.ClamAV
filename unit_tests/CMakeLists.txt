@@ -142,6 +142,18 @@ target_compile_definitions(check_clamav PUBLIC OBJDIR="${OBJDIR}" SRCDIR="${SRCD
 ADD_CUSTOM_COMMAND(TARGET check_clamav POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/input/clamav.hdb ${CMAKE_CURRENT_BINARY_DIR}/input/.)
 
+# The OpenSSL 3 digest-cache failure paths need a deterministic provider
+# failure that normal host and FIPS configurations do not reliably provide.
+# Use a Linux test-only interposer when libcrypto is dynamically linked. Avoid
+# LD_PRELOAD in sanitizer builds, where it can precede the sanitizer runtime.
+if(C_LINUX AND
+   OPENSSL_VERSION VERSION_GREATER_EQUAL "3.0.0" AND
+   NOT OPENSSL_CRYPTO_LIBRARY MATCHES "\\.a$" AND
+   NOT CMAKE_C_FLAGS MATCHES "-fsanitize")
+    add_library(force_hash_provider_failure SHARED force_hash_provider_failure.c)
+    target_include_directories(force_hash_provider_failure PRIVATE ${OPENSSL_INCLUDE_DIR})
+    target_link_libraries(force_hash_provider_failure PRIVATE ${CMAKE_DL_LIBS})
+endif()
 #
 # Paths to pass to our tests via environment variables
 #
@@ -195,6 +207,7 @@ if(WIN32)
         file(TO_NATIVE_PATH $<TARGET_FILE_DIR:check_clamav>/clamdtop.exe        CLAMDTOP)
         file(TO_NATIVE_PATH $<TARGET_FILE_DIR:check_clamav>/clamscan.exe        CLAMSCAN)
         file(TO_NATIVE_PATH $<TARGET_FILE_DIR:check_clamav>/clamsubmit.exe      CLAMSUBMIT)
+        file(TO_NATIVE_PATH $<TARGET_FILE:clamsubmit_test>                      CLAMSUBMIT_TEST)
         file(TO_NATIVE_PATH $<TARGET_FILE_DIR:check_clamav>/clamconf.exe        CLAMCONF)
         file(TO_NATIVE_PATH $<TARGET_FILE_DIR:check_clamav>/freshclam.exe       FRESHCLAM)
         file(TO_NATIVE_PATH $<TARGET_FILE_DIR:check_clamav>/sigtool.exe         SIGTOOL)
@@ -253,6 +266,7 @@ else()
         set(CLAMDTOP           $<TARGET_FILE:clamdtop>)
         set(CLAMSCAN           $<TARGET_FILE:clamscan>)
         set(CLAMSUBMIT         $<TARGET_FILE:clamsubmit>)
+        set(CLAMSUBMIT_TEST    $<TARGET_FILE:clamsubmit_test>)
         set(CLAMCONF           $<TARGET_FILE:clamconf>)
         set(FRESHCLAM          $<TARGET_FILE:freshclam-bin>)
         set(SIGTOOL            $<TARGET_FILE:sigtool>)
@@ -300,6 +314,7 @@ set(ENVIRONMENT
     CLAMDTOP=${CLAMDTOP}
     CLAMSCAN=${CLAMSCAN}
     CLAMSUBMIT=${CLAMSUBMIT}
+    CLAMSUBMIT_TEST=${CLAMSUBMIT_TEST}
     CLAMCONF=${CLAMCONF}
     FRESHCLAM=${FRESHCLAM}
     SIGTOOL=${SIGTOOL}
@@ -361,6 +376,51 @@ if(Valgrind_FOUND)
     set_property(TEST libclamav_valgrind PROPERTY ENVIRONMENT ${ENVIRONMENT} VALGRIND=${Valgrind_EXECUTABLE})
 endif()
 
+if(TARGET force_hash_provider_failure)
+    add_test(NAME libclamav_hash_fetch_failure
+        COMMAND $<TARGET_FILE:check_clamav>
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+    set_property(TEST libclamav_hash_fetch_failure PROPERTY
+        ENVIRONMENT
+            ${ENVIRONMENT}
+            CK_RUN_SUITE=cli
+            "CK_RUN_CASE=hash fetch failure"
+            CLAMAV_TEST_MD5_FETCH_FAILURE=1
+            "LD_PRELOAD=$<TARGET_FILE:force_hash_provider_failure>:$ENV{LD_PRELOAD}")
+    set_property(TEST libclamav_hash_fetch_failure PROPERTY TIMEOUT 300)
+
+    add_test(NAME libclamav_hash_libctx_failure
+        COMMAND $<TARGET_FILE:check_clamav>
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+    set_property(TEST libclamav_hash_libctx_failure PROPERTY
+        ENVIRONMENT
+            ${ENVIRONMENT}
+            CK_RUN_SUITE=cli
+            "CK_RUN_CASE=hash library context failure"
+            CLAMAV_TEST_OSSL_LIBCTX_FAILURE=1
+            "LD_PRELOAD=$<TARGET_FILE:force_hash_provider_failure>:$ENV{LD_PRELOAD}")
+    set_property(TEST libclamav_hash_libctx_failure PROPERTY TIMEOUT 300)
+
+    if(Valgrind_FOUND)
+        add_test(NAME libclamav_hash_fetch_failure_valgrind
+            COMMAND ${Valgrind_EXECUTABLE}
+                --leak-check=full
+                --show-leak-kinds=all
+                --errors-for-leak-kinds=definite,indirect,possible
+                --error-exitcode=1
+                $<TARGET_FILE:check_clamav>
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+        set_property(TEST libclamav_hash_fetch_failure_valgrind PROPERTY
+            ENVIRONMENT
+                ${ENVIRONMENT}
+                CK_RUN_SUITE=cli
+                "CK_RUN_CASE=hash fetch failure"
+                CLAMAV_TEST_MD5_FETCH_FAILURE=1
+                "LD_PRELOAD=$<TARGET_FILE:force_hash_provider_failure>:$ENV{LD_PRELOAD}")
+        set_property(TEST libclamav_hash_fetch_failure_valgrind PROPERTY TIMEOUT 300)
+    endif()
+endif()
+
 add_rust_test(NAME libclamav_rust
     SOURCE_DIRECTORY "${CMAKE_SOURCE_DIR}/libclamav_rust"
     BINARY_DIRECTORY "${CMAKE_BINARY_DIR}"
@@ -369,6 +429,10 @@ add_rust_test(NAME libclamav_rust
 set_property(TEST libclamav_rust PROPERTY ENVIRONMENT ${ENVIRONMENT})
 
 if(ENABLE_APP)
+    add_test(NAME clamsubmit COMMAND ${PythonTest_COMMAND};clamsubmit_test.py
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+    set_property(TEST clamsubmit PROPERTY ENVIRONMENT ${ENVIRONMENT})
+
     add_test(NAME clamscan COMMAND ${PythonTest_COMMAND};clamscan
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
     set_property(TEST clamscan PROPERTY ENVIRONMENT ${ENVIRONMENT})
